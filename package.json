@@ -1,0 +1,35 @@
+{
+  "name": "opencode-discord",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Lite Discord proxy for OpenCode: channel = project, thread = session",
+  "bin": {
+    "opencode-discord": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "start": "tsx src/index.ts start",
+    "add-project": "tsx src/index.ts add",
+    "remove-project": "tsx src/index.ts remove",
+    "list-projects": "tsx src/index.ts list",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "8.7.2",
+    "@libsql/client": "^0.17.2",
+    "@opencode-ai/sdk": "^1.16.2",
+    "discord.js": "^14.26.3",
+    "marked": "^17.0.5",
+    "picocolors": "^1.1.1",
+    "xdg-basedir": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}
