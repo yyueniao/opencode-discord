@@ -3,9 +3,11 @@ import {
   Events,
   GatewayIntentBits,
   Partials,
+  type Interaction,
   type Message,
 } from 'discord.js'
 import type { DiscordMessageService } from '../../application/discord-message-service.js'
+import type { SlashCommands } from '../../presentation/slash-commands.js'
 import type { SessionRuntimeRegistry } from '../../application/session-runtime-registry.js'
 import { DiscordMessaging } from './messaging.js'
 import type { OpencodeEventStream } from '../event-stream.js'
@@ -16,6 +18,7 @@ import type { Database } from '../persistence.js'
 export class DiscordBot {
   constructor(
     private readonly messages: DiscordMessageService,
+    private readonly slashCommands: SlashCommands,
     private readonly runtimes: SessionRuntimeRegistry,
     private readonly eventStream: OpencodeEventStream,
     private readonly opencode: OpencodeServer,
@@ -35,12 +38,30 @@ export class DiscordBot {
   }
 
   async start({ token, client }: { token: string; client: Client }): Promise<void> {
+    void this.slashCommands.ready().catch((error: unknown) => {
+      this.logger.error('Failed to ready slash commands:', error)
+    })
     void this.opencode.ensure().catch((error: unknown) => {
       this.logger.error('Failed to start OpenCode server:', error)
     })
 
     client.on(Events.ClientReady, (readyClient) => {
       this.logger.log(`Logged in as ${readyClient.user.tag}`)
+      void this.registerSlashCommands(readyClient)
+    })
+
+    client.on(Events.GuildCreate, (guild) => {
+      void guild.commands.set(this.slashCommands.definitions).catch((error: unknown) => {
+        this.logger.error(`Failed to register slash commands in ${guild.id}:`, error)
+      })
+    })
+
+    client.on(Events.InteractionCreate, async (interaction: Interaction) => {
+      try {
+        await this.slashCommands.handle(interaction)
+      } catch (error) {
+        this.logger.error('InteractionCreate handler error:', error)
+      }
     })
 
     client.on(Events.MessageCreate, async (message: Message) => {
@@ -76,5 +97,16 @@ export class DiscordBot {
     process.once('SIGTERM', () => {
       void shutdown()
     })
+  }
+
+  private async registerSlashCommands(client: Client<true>): Promise<void> {
+    try {
+      await Promise.all(
+        client.guilds.cache.map((guild) => guild.commands.set(this.slashCommands.definitions)),
+      )
+      this.logger.log('Registered /add-project')
+    } catch (error) {
+      this.logger.error('Failed to register slash commands:', error)
+    }
   }
 }

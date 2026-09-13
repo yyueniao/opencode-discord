@@ -1,4 +1,3 @@
-import os from 'node:os'
 import { select } from '@inquirer/prompts'
 import { Verbosity } from '../domain/verbosity.js'
 import type { App } from '../app.js'
@@ -73,7 +72,7 @@ export class Cli {
       directory = await select({
         message: 'Select project directory',
         choices: repos.map((repo) => ({
-          name: displayPath(repo),
+          name: this.app.gitRepos.displayPath(repo),
           value: repo,
         })),
       })
@@ -121,7 +120,3 @@ function requireFlag(args: string[], name: string): string {
   return value
 }
 
-function displayPath(directory: string): string {
-  const home = os.homedir()
-  return directory.startsWith(home) ? `~${directory.slice(home.length)}` : directory
-}

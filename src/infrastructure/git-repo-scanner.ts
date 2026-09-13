@@ -17,11 +17,23 @@ const SKIP_NAMES = new Set([
 const MAX_DEPTH = 6
 
 export class GitRepoScanner {
+  private cached: Promise<string[]> | undefined
+
+  displayPath(directory: string): string {
+    const home = os.homedir()
+    return directory.startsWith(home) ? `~${directory.slice(home.length)}` : directory
+  }
+
   async scan(root = os.homedir()): Promise<string[]> {
     const found: string[] = []
     await this.walk(root, 0, found)
     found.sort((a, b) => a.localeCompare(b))
     return found
+  }
+
+  list(): Promise<string[]> {
+    this.cached ??= this.scan()
+    return this.cached
   }
 
   private async walk(dir: string, depth: number, found: string[]): Promise<void> {

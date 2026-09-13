@@ -25,6 +25,7 @@ import {
   SqliteThreadSessionRepository,
 } from './infrastructure/persistence.js'
 import { Cli } from './presentation/cli.js'
+import { SlashCommands } from './presentation/slash-commands.js'
 
 export class App {
   readonly config = new AppConfig()
@@ -80,8 +81,15 @@ export class App {
     this.discordLogger,
   )
 
+  readonly slashCommands = new SlashCommands(
+    this.addProject,
+    this.gitRepos,
+    this.discordLogger,
+  )
+
   readonly bot = new DiscordBot(
     this.messageService,
+    this.slashCommands,
     this.runtimes,
     this.eventStream,
     this.opencode,

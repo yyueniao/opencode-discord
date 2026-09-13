@@ -4,7 +4,7 @@ Lite Discord proxy for [OpenCode](https://opencode.ai).
 
 Each Discord channel maps to a project directory. A message in that channel starts a thread. Each thread maps to one OpenCode session. The bot posts OpenCode events back to the thread using the original Kimaki-style prefixes.
 
-This is a proxy only. No critics, analytics, voice, worktrees, slash commands, or queue UI.
+This is a proxy only. No critics, analytics, voice, worktrees, or queue UI.
 
 ## What it does
 
@@ -41,7 +41,7 @@ When a turn finishes, the model pings the user on the last line (`<@userId> shor
 
 ## Setup
 
-1. Create a Discord bot, enable **Message Content Intent**, invite it with the `bot` scope and **View Channel** + **Manage Channels** (needed by `add-project`) plus Send Messages, Create Public Threads, Send Messages in Threads, Manage Threads, Embed Links, Attach Files, and Read Message History. The bot must be in the same server as `DISCORD_CATEGORY_ID`.
+1. Create a Discord bot, enable **Message Content Intent**, invite it with the `bot` and `applications.commands` scopes and **View Channel** + **Manage Channels** (needed by `add-project`) plus Send Messages, Create Public Threads, Send Messages in Threads, Manage Threads, Embed Links, Attach Files, and Read Message History. The bot must be in the same server as `DISCORD_CATEGORY_ID`.
 2. Install [OpenCode](https://opencode.ai) so `opencode` is on `PATH`.
 3. Install this package:
 
@@ -64,7 +64,7 @@ pnpm add-project
 pnpm start
 ```
 
-`add-project` scans `~` for git repos, asks you to pick a directory, and creates a Discord channel in that category.
+`add-project` scans `~` for git repos, asks you to pick a directory, and creates a Discord channel in that category. After `pnpm start`, the same flow is available as `/add-project` with a `project` option (autocomplete from scanned git repos).
 
 Send a message in that channel. The bot creates a thread and runs OpenCode there.
 
