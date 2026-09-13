@@ -1,7 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import http from 'node:http'
 import net from 'node:net'
-import os from 'node:os'
 import {
   createOpencodeClient,
   type OpencodeClient,
@@ -44,7 +43,7 @@ export class OpencodeServer {
       'opencode',
       ['serve', '--port', String(port), '--hostname', hostname, '--print-logs', '--log-level', 'WARN'],
       {
-        cwd: os.homedir(),
+        cwd: process.cwd(),
         env: {
           ...process.env,
           OPENCODE_EXPERIMENTAL_WORKSPACES: 'true',
