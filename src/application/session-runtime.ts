@@ -1,93 +1,40 @@
 import type { Event as OpenCodeEvent, OpencodeClient, Part } from '@opencode-ai/sdk/v2'
-import type { ThreadChannel } from 'discord.js'
-import { ChannelType } from 'discord.js'
-import { getFileAttachments, getTextAttachments } from './attachments.js'
-import { getVerbosity } from './config.js'
-import {
-  getThreadSession,
-  hasPartMessage,
-  setPartMessage,
-  setThreadSession,
-} from './db.js'
-import {
-  NOTIFY_MESSAGE_FLAGS,
-  SILENT_MESSAGE_FLAGS,
-  sendErrorToThread,
-  sendSessionPartMessage,
-  sendThreadMessage,
-} from './discord-utils.js'
-import {
-  registerEventListener,
-  unregisterEventListener,
-  waitForGlobalEventListener,
-} from './events.js'
-import {
-  formatPart,
-  formatTaskToolTitle,
-  isEssentialToolPart,
-  sessionPartKind,
-  shouldLeadWithSeparator,
-  type SessionPartKind,
-  resolveMentions,
-} from './format.js'
-import { createLogger, LogPrefix } from './logger.js'
-import { initializeOpencodeForDirectory } from './opencode.js'
-import {
-  getOpencodePromptContext,
-  getOpencodeSystemMessage,
-} from './system-message.js'
+import { ChannelType, type ThreadChannel } from 'discord.js'
+import type { IncomingPrompt } from '../domain/incoming-prompt.js'
+import { SessionPart, type SessionPartKind } from '../domain/session-part.js'
+import type { PartFormatter } from '../domain/part-formatter.js'
+import type { PromptBuilder } from '../domain/prompt-builder.js'
+import type {
+  PartMessageRepository,
+  ThreadSessionRepository,
+} from '../domain/repositories.js'
+import type { AppConfig } from '../infrastructure/config.js'
+import { DiscordMessaging } from '../infrastructure/discord/messaging.js'
+import type { OpencodeEventStream } from '../infrastructure/event-stream.js'
+import type { Logger } from '../infrastructure/logger.js'
+import type { OpencodeServer } from '../infrastructure/opencode-server.js'
 
-const logger = createLogger(LogPrefix.SESSION)
-const discordLogger = createLogger(LogPrefix.DISCORD)
-
-const runtimes = new Map<string, ThreadSessionRuntime>()
-
-export function getRuntime(threadId: string): ThreadSessionRuntime | undefined {
-  return runtimes.get(threadId)
+export type SessionRuntimeDeps = {
+  opencode: OpencodeServer
+  threadSessions: ThreadSessionRepository
+  partMessages: PartMessageRepository
+  eventStream: OpencodeEventStream
+  config: AppConfig
+  messaging: DiscordMessaging
+  promptBuilder: PromptBuilder
+  partFormatter: PartFormatter
+  logger: Logger
+  discordLogger: Logger
 }
 
-export function getOrCreateRuntime(input: {
-  threadId: string
-  thread: ThreadChannel
-  projectDirectory: string
-  channelId: string
-}): ThreadSessionRuntime {
-  const existing = runtimes.get(input.threadId)
-  if (existing) return existing
-  const runtime = new ThreadSessionRuntime(input)
-  runtimes.set(input.threadId, runtime)
-  return runtime
-}
-
-export function disposeRuntime(threadId: string): void {
-  const runtime = runtimes.get(threadId)
-  if (!runtime) return
-  runtime.dispose()
-  runtimes.delete(threadId)
-}
-
-export function disposeAllRuntimes(): void {
-  for (const [threadId, runtime] of runtimes) {
-    runtime.dispose()
-    runtimes.delete(threadId)
-  }
-}
-
-type IncomingMessage = {
-  prompt: string
+type IncomingTurn = {
+  prompt: IncomingPrompt
   userId: string
   username: string
   sourceMessageId: string
-  images?: Array<{
-    type: 'file'
-    mime: string
-    filename?: string
-    url: string
-    sourceUrl?: string
-  }>
 }
 
-export class ThreadSessionRuntime {
+export class SessionRuntime {
   readonly threadId: string
   readonly thread: ThreadChannel
   readonly projectDirectory: string
@@ -102,17 +49,20 @@ export class ThreadSessionRuntime {
   private ingressQueue: Promise<void> = Promise.resolve()
   private eventQueue: Promise<void> = Promise.resolve()
 
-  constructor(input: {
-    threadId: string
-    thread: ThreadChannel
-    projectDirectory: string
-    channelId: string
-  }) {
+  constructor(
+    input: {
+      threadId: string
+      thread: ThreadChannel
+      projectDirectory: string
+      channelId: string
+    },
+    private readonly deps: SessionRuntimeDeps,
+  ) {
     this.threadId = input.threadId
     this.thread = input.thread
     this.projectDirectory = input.projectDirectory
     this.channelId = input.channelId
-    registerEventListener(this.threadId, (event) => {
+    this.deps.eventStream.register(this.threadId, (event) => {
       this.enqueueEvent(event)
     })
   }
@@ -120,10 +70,10 @@ export class ThreadSessionRuntime {
   dispose(): void {
     this.disposed = true
     this.stopTyping()
-    unregisterEventListener(this.threadId)
+    this.deps.eventStream.unregister(this.threadId)
   }
 
-  enqueueIncoming(input: IncomingMessage): Promise<void> {
+  enqueueIncoming(input: IncomingTurn): Promise<void> {
     const run = this.ingressQueue.then(() => this.submit(input))
     this.ingressQueue = run.then(
       () => undefined,
@@ -137,28 +87,23 @@ export class ThreadSessionRuntime {
     this.eventQueue = run.then(
       () => undefined,
       (error: unknown) => {
-        logger.error(`Event handler failed:`, error)
+        this.deps.logger.error(`Event handler failed:`, error)
       },
     )
   }
 
-  private async submit(input: IncomingMessage): Promise<void> {
+  private async submit(input: IncomingTurn): Promise<void> {
     if (this.disposed) return
     try {
-      const getClient = await initializeOpencodeForDirectory(this.projectDirectory)
+      const getClient = await this.deps.opencode.initializeForDirectory(this.projectDirectory)
       const session = await this.ensureSession(getClient)
       const channelTopic =
         this.thread.parent?.type === ChannelType.GuildText
           ? this.thread.parent.topic?.trim() || undefined
           : undefined
-      const images = input.images || []
-      const promptWithImagePaths =
-        images.length === 0
-          ? input.prompt
-          : `${input.prompt}\n\n**The following images are already included in this message as inline content (do not use Read tool on these):**\n${images
-              .map((img) => `- ${img.sourceUrl || img.filename}`)
-              .join('\n')}`
-      const syntheticContext = getOpencodePromptContext({
+      const images = input.prompt.images
+      const promptWithImagePaths = input.prompt.withImagePaths()
+      const syntheticContext = this.deps.promptBuilder.context({
         username: input.username,
         userId: input.userId,
         sourceMessageId: input.sourceMessageId,
@@ -170,12 +115,12 @@ export class ThreadSessionRuntime {
         { type: 'text' as const, text: syntheticContext, synthetic: true },
         ...images,
       ]
-      await waitForGlobalEventListener()
+      await this.deps.eventStream.waitUntilConnected()
       const result = await getClient().session.promptAsync({
         sessionID: session.id,
         directory: this.projectDirectory,
         parts,
-        system: getOpencodeSystemMessage({
+        system: this.deps.promptBuilder.systemMessage({
           sessionId: session.id,
           channelId: this.channelId,
           guildId: this.thread.guildId,
@@ -188,21 +133,26 @@ export class ThreadSessionRuntime {
           typeof result.error === 'object' && result.error && 'message' in result.error
             ? String(result.error.message)
             : 'promptAsync failed'
-        await sendThreadMessage(this.thread, `✗ OpenCode API error: ${message}`, {
-          flags: NOTIFY_MESSAGE_FLAGS,
-        })
+        await this.deps.messaging.sendThreadMessage(
+          this.thread,
+          `✗ OpenCode API error: ${message}`,
+          { flags: DiscordMessaging.NOTIFY_FLAGS },
+        )
         return
       }
-      logger.log(`promptAsync accepted sessionId=${session.id} threadId=${this.threadId}`)
+      this.deps.logger.log(
+        `promptAsync accepted sessionId=${session.id} threadId=${this.threadId}`,
+      )
     } catch (error) {
-      await sendErrorToThread(this.thread, error)
+      await this.deps.messaging.sendErrorToThread(this.thread, error)
     }
   }
 
   private async ensureSession(
     getClient: () => OpencodeClient,
   ): Promise<{ id: string }> {
-    let sessionId = this.sessionId || (await getThreadSession(this.thread.id))
+    let sessionId =
+      this.sessionId || (await this.deps.threadSessions.findSessionId(this.thread.id))
     if (sessionId) {
       try {
         const existing = await getClient().session.get({
@@ -211,11 +161,11 @@ export class ThreadSessionRuntime {
         })
         if (existing.data) {
           this.sessionId = existing.data.id
-          await setThreadSession(this.thread.id, existing.data.id)
+          await this.deps.threadSessions.save(this.thread.id, existing.data.id)
           return { id: existing.data.id }
         }
       } catch (error) {
-        logger.warn(
+        this.deps.logger.warn(
           `Failed to reuse session ${sessionId}:`,
           error instanceof Error ? error.message : error,
         )
@@ -229,8 +179,8 @@ export class ThreadSessionRuntime {
       throw new Error(`Failed to create OpenCode session for thread ${this.thread.id}`)
     }
     this.sessionId = created.data.id
-    await setThreadSession(this.thread.id, created.data.id)
-    logger.log(`Created session ${created.data.id} for thread ${this.thread.id}`)
+    await this.deps.threadSessions.save(this.thread.id, created.data.id)
+    this.deps.logger.log(`Created session ${created.data.id} for thread ${this.thread.id}`)
     return { id: created.data.id }
   }
 
@@ -276,9 +226,9 @@ export class ThreadSessionRuntime {
             : `${Math.floor(remainingSec / 60)}m`
         const chunk = `⬦ ${status.message} - retrying in ${duration} (attempt #${status.attempt})`
         await this.thread
-          .send({ content: chunk, flags: SILENT_MESSAGE_FLAGS })
+          .send({ content: chunk, flags: DiscordMessaging.SILENT_FLAGS })
           .catch((error: unknown) => {
-            discordLogger.error('Failed to send retry notice:', error)
+            this.deps.discordLogger.error('Failed to send retry notice:', error)
           })
       }
       return
@@ -299,9 +249,11 @@ export class ThreadSessionRuntime {
           : error?.name || 'unknown error'
       this.busy = false
       this.stopTyping()
-      await sendThreadMessage(this.thread, `✗ opencode session error: ${message}`, {
-        flags: NOTIFY_MESSAGE_FLAGS,
-      })
+      await this.deps.messaging.sendThreadMessage(
+        this.thread,
+        `✗ opencode session error: ${message}`,
+        { flags: DiscordMessaging.NOTIFY_FLAGS },
+      )
       return
     }
 
@@ -346,29 +298,29 @@ export class ThreadSessionRuntime {
   }
 
   private async sendPartMessage({ part }: { part: Part }): Promise<void> {
-    const verbosity = getVerbosity()
-    if (verbosity === 'text_only' && part.type !== 'text') return
-    if (verbosity === 'text_and_essential_tools') {
-      if (part.type !== 'text' && !(part.type === 'tool' && isEssentialToolPart(part))) {
+    const verbosity = this.deps.config.getVerbosity()
+    if (verbosity.isTextOnly && part.type !== 'text') return
+    if (verbosity.isTextAndEssentialTools) {
+      if (part.type !== 'text' && !(part.type === 'tool' && SessionPart.isEssentialTool(part))) {
         return
       }
     }
 
-    const content = formatPart(part)
+    const content = this.deps.partFormatter.format(part)
     if (!content.trim()) return
-    if (this.sentPartIds.has(part.id) || (await hasPartMessage(part.id))) return
+    if (this.sentPartIds.has(part.id) || (await this.deps.partMessages.exists(part.id))) return
     this.sentPartIds.add(part.id)
 
-    const kind = sessionPartKind(part)
+    const kind = SessionPart.kind(part)
     try {
-      const sent = await sendSessionPartMessage(this.thread, content, {
-        leadWithSeparator: shouldLeadWithSeparator({
+      const sent = await this.deps.messaging.sendSessionPartMessage(this.thread, content, {
+        leadWithSeparator: SessionPart.shouldLeadWithSeparator({
           previousKind: this.lastSentPartKind,
           nextKind: kind,
         }),
       })
       this.lastSentPartKind = kind
-      await setPartMessage({
+      await this.deps.partMessages.save({
         partId: part.id,
         messageId: sent.id,
         threadId: this.thread.id,
@@ -376,7 +328,7 @@ export class ThreadSessionRuntime {
       this.requestTypingRepulse()
     } catch (error) {
       this.sentPartIds.delete(part.id)
-      discordLogger.error(`Failed to send part ${part.id}:`, error)
+      this.deps.discordLogger.error(`Failed to send part ${part.id}:`, error)
     }
   }
 
@@ -412,25 +364,33 @@ export class ThreadSessionRuntime {
         skipPartId: part.id,
       })
       if (part.tool === 'task') {
-        const taskDisplay = formatTaskToolTitle(part)
-        if (taskDisplay && getVerbosity() !== 'text_only' && !this.sentPartIds.has(part.id)) {
+        const taskDisplay = this.deps.partFormatter.formatTaskToolTitle(part)
+        if (
+          taskDisplay &&
+          !this.deps.config.getVerbosity().isTextOnly &&
+          !this.sentPartIds.has(part.id)
+        ) {
           this.sentPartIds.add(part.id)
           try {
-            const sent = await sendSessionPartMessage(this.thread, taskDisplay, {
-              leadWithSeparator: shouldLeadWithSeparator({
-                previousKind: this.lastSentPartKind,
-                nextKind: 'tool',
-              }),
-            })
+            const sent = await this.deps.messaging.sendSessionPartMessage(
+              this.thread,
+              taskDisplay,
+              {
+                leadWithSeparator: SessionPart.shouldLeadWithSeparator({
+                  previousKind: this.lastSentPartKind,
+                  nextKind: 'tool',
+                }),
+              },
+            )
             this.lastSentPartKind = 'tool'
-            await setPartMessage({
+            await this.deps.partMessages.save({
               partId: part.id,
               messageId: sent.id,
               threadId: this.thread.id,
             })
           } catch (error) {
             this.sentPartIds.delete(part.id)
-            discordLogger.error(`Failed to send task part ${part.id}:`, error)
+            this.deps.discordLogger.error(`Failed to send task part ${part.id}:`, error)
           }
         }
         return
@@ -442,23 +402,23 @@ export class ThreadSessionRuntime {
     if (part.type === 'tool' && part.state.status === 'completed') {
       const output = part.state.output || ''
       const outputTokens = Math.ceil(output.length / 4)
-      if (outputTokens >= 3000 && getVerbosity() !== 'text_only') {
+      if (outputTokens >= 3000 && !this.deps.config.getVerbosity().isTextOnly) {
         const formattedTokens =
           outputTokens >= 1000 ? `${(outputTokens / 1000).toFixed(1)}k` : String(outputTokens)
         await this.thread
           .send({
             content: `⬦ ${part.tool} returned ${formattedTokens} tokens`,
-            flags: SILENT_MESSAGE_FLAGS,
+            flags: DiscordMessaging.SILENT_FLAGS,
           })
           .catch((error: unknown) => {
-            discordLogger.error('Failed to send large output notice:', error)
+            this.deps.discordLogger.error('Failed to send large output notice:', error)
           })
       }
       return
     }
 
     if (part.type === 'reasoning') {
-      if (getVerbosity() === 'tools_and_text') {
+      if (this.deps.config.getVerbosity().isToolsAndText) {
         await this.sendPartMessage({ part })
       }
       return
@@ -486,7 +446,9 @@ export class ThreadSessionRuntime {
     try {
       await this.thread.sendTyping()
     } catch (error) {
-      discordLogger.log(`Failed to send typing: ${error instanceof Error ? error.message : error}`)
+      this.deps.discordLogger.log(
+        `Failed to send typing: ${error instanceof Error ? error.message : error}`,
+      )
     }
   }
 
@@ -544,14 +506,4 @@ export class ThreadSessionRuntime {
   private stopTyping(): void {
     this.clearTypingKeepalive()
   }
-}
-
-export async function preprocessMessage(
-  message: import('discord.js').Message,
-): Promise<{ prompt: string; images: IncomingMessage['images'] }> {
-  const resolved = resolveMentions(message)
-  const textAttachments = await getTextAttachments(message)
-  const images = await getFileAttachments(message)
-  const prompt = [resolved, textAttachments].filter(Boolean).join('\n\n')
-  return { prompt, images }
 }
