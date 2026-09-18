@@ -1,5 +1,3 @@
-import type { Memory } from './memory.js'
-
 export class PromptBuilder {
   context({
     username,
@@ -50,16 +48,12 @@ ${escapePromptText(repliedMessage.text)}
     guildId,
     threadId,
     channelTopic,
-    memories,
-    memoryFilePath,
   }: {
     sessionId: string
     channelId?: string
     guildId?: string
     threadId?: string
     channelTopic?: string
-    memories?: Memory[]
-    memoryFilePath?: string
   }): string {
     const topicContext = channelTopic?.trim()
       ? `\n\n<channel-topic>\n${channelTopic.trim()}\n</channel-topic>`
@@ -71,8 +65,6 @@ Your current OpenCode session ID is: ${sessionId}${channelId ? `\nYour current D
 ${topicContext}
 
 Per-turn Discord metadata like the current user and Discord thread title is delivered in synthetic user message parts.
-
-${memoryInstructions({ memories, memoryFilePath })}
 
 ## discord formatting
 
@@ -97,39 +89,6 @@ Rules:
 - Do not ping after tool output, mid-turn text, or if you are about to keep working
 `.trim()
   }
-}
-
-function memoryInstructions({
-  memories,
-  memoryFilePath,
-}: {
-  memories?: Memory[]
-  memoryFilePath?: string
-}): string {
-  if (!memoryFilePath) return ''
-  const lines = (memories ?? []).map((memory) => {
-    const name = memory.username || 'unknown'
-    const userId = memory.userId ? ` user-id="${escapePromptAttribute(memory.userId)}"` : ''
-    return `- ${name}${userId}: ${escapePromptText(memory.fact)}`
-  })
-  const body = lines.length > 0 ? lines.join('\n') : '(none yet)'
-  return `
-## project memories
-
-Durable user facts and preferences persist across threads in this JSON file:
-\`${memoryFilePath}\`
-
-Current memories:
-<project-memories>
-${body}
-</project-memories>
-
-When you learn a lasting fact or preference about a user (style, constraints, names, decisions that should survive this thread), update that JSON file.
-Use the Discord user ID from \`<discord-user user-id="..." />\`. Keep each fact one short sentence. Preserve existing memories unless they are wrong. Do not store secrets.
-
-Schema:
-{"memories":[{"userId":"<discord user id>","username":"<name>","fact":"<one sentence>"}]}
-`.trim()
 }
 
 function escapePromptAttribute(value: string): string {

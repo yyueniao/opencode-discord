@@ -1,6 +1,5 @@
 import { AddProject } from './application/add-project.js'
 import { DiscordMessageService } from './application/discord-message-service.js'
-import { ListMemories } from './application/list-memories.js'
 import { ListProjects } from './application/list-projects.js'
 import { MessagePreprocessor } from './application/message-preprocessor.js'
 import { RemoveProject } from './application/remove-project.js'
@@ -18,7 +17,6 @@ import { EnvLoader } from './infrastructure/env-loader.js'
 import { OpencodeEventStream } from './infrastructure/event-stream.js'
 import { GitRepoScanner } from './infrastructure/git-repo-scanner.js'
 import { Logger, LogFile, LogPrefix } from './infrastructure/logger.js'
-import { JsonMemoryStore } from './infrastructure/memory-store.js'
 import { OpencodeServer } from './infrastructure/opencode-server.js'
 import {
   Database,
@@ -50,7 +48,6 @@ export class App {
   readonly channelProjects = new SqliteChannelProjectRepository(this.database)
   readonly threadSessions = new SqliteThreadSessionRepository(this.database)
   readonly partMessages = new SqlitePartMessageRepository(this.database)
-  readonly memories = new JsonMemoryStore(this.config)
 
   readonly opencode = new OpencodeServer(this.config, this.opencodeLogger)
   readonly eventStream = new OpencodeEventStream(this.opencode, this.sessionLogger)
@@ -62,7 +59,6 @@ export class App {
     opencode: this.opencode,
     threadSessions: this.threadSessions,
     partMessages: this.partMessages,
-    memories: this.memories,
     eventStream: this.eventStream,
     config: this.config,
     messaging: this.messaging,
@@ -72,10 +68,9 @@ export class App {
     discordLogger: this.discordLogger,
   })
 
-  readonly addProject = new AddProject(this.channelProjects, this.provisioner, this.memories)
+  readonly addProject = new AddProject(this.channelProjects, this.provisioner)
   readonly removeProject = new RemoveProject(this.channelProjects)
   readonly listProjects = new ListProjects(this.channelProjects)
-  readonly listMemories = new ListMemories(this.memories, this.channelProjects)
 
   readonly messageService = new DiscordMessageService(
     this.channelProjects,
@@ -88,7 +83,6 @@ export class App {
 
   readonly slashCommands = new SlashCommands(
     this.addProject,
-    this.listMemories,
     this.gitRepos,
     this.discordLogger,
   )

@@ -5,7 +5,6 @@ import { SessionPart, type SessionPartKind } from '../domain/session-part.js'
 import type { PartFormatter } from '../domain/part-formatter.js'
 import type { PromptBuilder } from '../domain/prompt-builder.js'
 import type {
-  MemoryRepository,
   PartMessageRepository,
   ThreadSessionRepository,
 } from '../domain/repositories.js'
@@ -19,7 +18,6 @@ export type SessionRuntimeDeps = {
   opencode: OpencodeServer
   threadSessions: ThreadSessionRepository
   partMessages: PartMessageRepository
-  memories: MemoryRepository
   eventStream: OpencodeEventStream
   config: AppConfig
   messaging: DiscordMessaging
@@ -118,8 +116,6 @@ export class SessionRuntime {
         ...images,
       ]
       await this.deps.eventStream.waitUntilConnected()
-      await this.deps.memories.ensure(this.projectDirectory)
-      const memories = await this.deps.memories.list(this.projectDirectory)
       const result = await getClient().session.promptAsync({
         sessionID: session.id,
         directory: this.projectDirectory,
@@ -130,8 +126,6 @@ export class SessionRuntime {
           guildId: this.thread.guildId,
           threadId: this.thread.id,
           channelTopic,
-          memories,
-          memoryFilePath: this.deps.memories.filePath(this.projectDirectory),
         }),
       })
       if (result.error) {

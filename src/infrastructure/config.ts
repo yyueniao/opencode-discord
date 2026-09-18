@@ -25,16 +25,6 @@ export class AppConfig {
     return path.join(this.getDataDir(), 'sessions.db')
   }
 
-  getMemoriesDir(): string {
-    return path.join(this.getDataDir(), 'memories')
-  }
-
-  ensureMemoriesDir(): string {
-    const dir = this.getMemoriesDir()
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
-    return dir
-  }
-
   getLogPath(): string {
     return path.join(this.getDataDir(), 'opencode-discord.log')
   }

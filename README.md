@@ -64,7 +64,7 @@ pnpm add-project
 pnpm start
 ```
 
-`add-project` scans `~` for git repos, asks you to pick a directory, and creates a Discord channel in that category. After `pnpm start`, the same flow is available as `/add-project` with a `project` option (autocomplete from scanned git repos). `/memory` lists saved user facts for a project channel, or asks you to pick from added projects elsewhere.
+`add-project` scans `~` for git repos, asks you to pick a directory, and creates a Discord channel in that category. After `pnpm start`, the same flow is available as `/add-project` with a `project` option (autocomplete from scanned git repos).
 
 Send a message in that channel. The bot creates a thread and runs OpenCode there.
 
@@ -77,7 +77,7 @@ opencode-discord remove --channel CHANNEL_ID
 opencode-discord list
 ```
 
-Data lives in `~/.local/share/opencode-discord/` (`sessions.db`, `opencode-discord.log`, `memories/`).
+Data lives in `~/.local/share/opencode-discord/` (`sessions.db`, `opencode-discord.log`).
 
 ## Requirements
 
