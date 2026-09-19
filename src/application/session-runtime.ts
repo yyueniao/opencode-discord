@@ -10,7 +10,10 @@ import type {
 } from '../domain/repositories.js'
 import type { AppConfig } from '../infrastructure/config.js'
 import { DiscordMessaging } from '../infrastructure/discord/messaging.js'
-import type { OpencodeEventStream } from '../infrastructure/event-stream.js'
+import {
+  eventSessionId,
+  type OpencodeEventStream,
+} from '../infrastructure/event-stream.js'
 import type { Logger } from '../infrastructure/logger.js'
 import type { OpencodeServer } from '../infrastructure/opencode-server.js'
 
@@ -160,7 +163,7 @@ export class SessionRuntime {
           directory: this.projectDirectory,
         })
         if (existing.data) {
-          this.sessionId = existing.data.id
+          this.setSessionId(existing.data.id)
           await this.deps.threadSessions.save(this.thread.id, existing.data.id)
           return { id: existing.data.id }
         }
@@ -178,27 +181,15 @@ export class SessionRuntime {
     if (!created.data) {
       throw new Error(`Failed to create OpenCode session for thread ${this.thread.id}`)
     }
-    this.sessionId = created.data.id
+    this.setSessionId(created.data.id)
     await this.deps.threadSessions.save(this.thread.id, created.data.id)
     this.deps.logger.log(`Created session ${created.data.id} for thread ${this.thread.id}`)
     return { id: created.data.id }
   }
 
-  private eventSessionId(event: OpenCodeEvent): string | undefined {
-    const properties = event.properties as Record<string, unknown> | undefined
-    if (!properties || typeof properties !== 'object') return undefined
-    if (typeof properties.sessionID === 'string') return properties.sessionID
-    const info = properties.info
-    if (info && typeof info === 'object' && 'sessionID' in info) {
-      const sessionID = (info as { sessionID?: unknown }).sessionID
-      if (typeof sessionID === 'string') return sessionID
-    }
-    const part = properties.part
-    if (part && typeof part === 'object' && 'sessionID' in part) {
-      const sessionID = (part as { sessionID?: unknown }).sessionID
-      if (typeof sessionID === 'string') return sessionID
-    }
-    return undefined
+  private setSessionId(sessionId: string): void {
+    this.sessionId = sessionId
+    this.deps.eventStream.bindSession(this.threadId, sessionId)
   }
 
   private async handleEvent(event: OpenCodeEvent): Promise<void> {
@@ -206,8 +197,8 @@ export class SessionRuntime {
     const sessionId = this.sessionId
     if (!sessionId) return
     if (!event.properties) return
-    const eventSessionId = this.eventSessionId(event)
-    if (eventSessionId && eventSessionId !== sessionId) return
+    const incomingSessionId = eventSessionId(event)
+    if (incomingSessionId && incomingSessionId !== sessionId) return
 
     if (event.type === 'session.status') {
       const status = event.properties.status

@@ -7,6 +7,8 @@ type EventCallback = (event: OpenCodeEvent) => void
 
 export class OpencodeEventStream {
   private readonly callbacks = new Map<string, EventCallback>()
+  private readonly sessionToThread = new Map<string, string>()
+  private readonly threadToSession = new Map<string, string>()
   private loopRunning = false
   private disposed = false
   private controller: AbortController | null = null
@@ -24,8 +26,20 @@ export class OpencodeEventStream {
     this.ensureListenerRunning()
   }
 
+  bindSession(threadId: string, sessionId: string): void {
+    const previous = this.threadToSession.get(threadId)
+    if (previous && previous !== sessionId) {
+      this.sessionToThread.delete(previous)
+    }
+    this.threadToSession.set(threadId, sessionId)
+    this.sessionToThread.set(sessionId, threadId)
+  }
+
   unregister(threadId: string): void {
     this.callbacks.delete(threadId)
+    const sessionId = this.threadToSession.get(threadId)
+    if (sessionId) this.sessionToThread.delete(sessionId)
+    this.threadToSession.delete(threadId)
   }
 
   dispose(): void {
@@ -35,6 +49,8 @@ export class OpencodeEventStream {
     this.controller?.abort()
     this.controller = null
     this.callbacks.clear()
+    this.sessionToThread.clear()
+    this.threadToSession.clear()
   }
 
   restart(): void {
@@ -59,9 +75,11 @@ export class OpencodeEventStream {
 
   private dispatchEvent(globalEvent: GlobalEvent): void {
     const payload = globalEvent.payload as OpenCodeEvent
-    for (const callback of this.callbacks.values()) {
-      callback(payload)
-    }
+    const sessionId = eventSessionId(payload)
+    if (!sessionId) return
+    const threadId = this.sessionToThread.get(sessionId)
+    if (!threadId) return
+    this.callbacks.get(threadId)?.(payload)
   }
 
   private async runEventLoop(): Promise<void> {
@@ -146,6 +164,23 @@ export class OpencodeEventStream {
       backoffMs = Math.min(backoffMs * 2, maxBackoffMs)
     }
   }
+}
+
+export function eventSessionId(event: OpenCodeEvent): string | undefined {
+  const properties = event.properties as Record<string, unknown> | undefined
+  if (!properties || typeof properties !== 'object') return undefined
+  if (typeof properties.sessionID === 'string') return properties.sessionID
+  const info = properties.info
+  if (info && typeof info === 'object' && 'sessionID' in info) {
+    const sessionID = (info as { sessionID?: unknown }).sessionID
+    if (typeof sessionID === 'string') return sessionID
+  }
+  const part = properties.part
+  if (part && typeof part === 'object' && 'sessionID' in part) {
+    const sessionID = (part as { sessionID?: unknown }).sessionID
+    if (typeof sessionID === 'string') return sessionID
+  }
+  return undefined
 }
 
 function isAbortError(err: unknown): boolean {
