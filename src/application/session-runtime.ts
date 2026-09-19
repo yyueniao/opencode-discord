@@ -119,10 +119,16 @@ export class SessionRuntime {
         ...images,
       ]
       await this.deps.eventStream.waitUntilConnected()
+      const model = this.deps.config.getOpencodeModel()
       const result = await getClient().session.promptAsync({
         sessionID: session.id,
         directory: this.projectDirectory,
         parts,
+        model: {
+          providerID: model.providerID,
+          modelID: model.modelID,
+        },
+        variant: this.deps.config.getOpencodeVariant(),
         system: this.deps.promptBuilder.systemMessage({
           sessionId: session.id,
           channelId: this.channelId,
@@ -175,8 +181,14 @@ export class SessionRuntime {
       }
     }
 
+    const model = this.deps.config.getOpencodeModel()
     const created = await getClient().session.create({
       directory: this.projectDirectory,
+      model: {
+        id: model.modelID,
+        providerID: model.providerID,
+        variant: this.deps.config.getOpencodeVariant(),
+      },
     })
     if (!created.data) {
       throw new Error(`Failed to create OpenCode session for thread ${this.thread.id}`)

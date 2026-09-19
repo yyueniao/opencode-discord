@@ -51,6 +51,8 @@ export class Cli {
       if (!token) {
         throw new Error('Set DISCORD_BOT_TOKEN or pass --token')
       }
+      this.app.config.getOpencodeModel()
+      this.app.config.getOpencodeVariant()
       const client = this.app.bot.createClient()
       this.app.cliLogger.log(`Data dir ${dataDir}`)
       await this.app.bot.start({ token, client })
@@ -98,6 +100,8 @@ Env:
   DISCORD_BOT_TOKEN     bot token (or --token)
   DISCORD_CATEGORY_ID   category to create project channels in
   OPENCODE_DISCORD_DATA_DIR   data directory (default: ~/.local/share/opencode-discord)
+  OPENCODE_DISCORD_MODEL      provider/model (required)
+  OPENCODE_DISCORD_VARIANT    model variant (required)
 
 Verbosity:
   text_only

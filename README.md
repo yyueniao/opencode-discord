@@ -55,7 +55,11 @@ pnpm install
 ```
 DISCORD_BOT_TOKEN=...
 DISCORD_CATEGORY_ID=...
+OPENCODE_DISCORD_MODEL=provider/model
+OPENCODE_DISCORD_VARIANT=low
 ```
+
+`OPENCODE_DISCORD_MODEL` and `OPENCODE_DISCORD_VARIANT` are required. Sessions use that model/variant only; they do not change the default for other OpenCode sessions.
 
 5. Add a project, then start:
 

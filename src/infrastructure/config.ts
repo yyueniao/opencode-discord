@@ -50,6 +50,31 @@ export class AppConfig {
     return port || undefined
   }
 
+  getOpencodeModel(): { providerID: string; modelID: string } {
+    const raw = process.env.OPENCODE_DISCORD_MODEL
+    if (!raw) {
+      throw new Error('Set OPENCODE_DISCORD_MODEL')
+    }
+    const slash = raw.indexOf('/')
+    if (slash <= 0 || slash === raw.length - 1) {
+      throw new Error(
+        `OPENCODE_DISCORD_MODEL must be provider/model, got ${JSON.stringify(raw)}`,
+      )
+    }
+    return {
+      providerID: raw.slice(0, slash),
+      modelID: raw.slice(slash + 1),
+    }
+  }
+
+  getOpencodeVariant(): string {
+    const variant = process.env.OPENCODE_DISCORD_VARIANT
+    if (!variant) {
+      throw new Error('Set OPENCODE_DISCORD_VARIANT')
+    }
+    return variant
+  }
+
   getOpencodeAuthHeaders(): Record<string, string> {
     const serverPassword = process.env.OPENCODE_SERVER_PASSWORD
     if (!serverPassword) return {}
