@@ -258,6 +258,7 @@ export class SessionRuntime {
       if (msg.role !== 'assistant') return
       if (typeof msg.time.completed === 'number') {
         await this.flushBufferedParts({ messageID: msg.id, force: true })
+        this.forgetMessage(msg.id)
         this.busy = false
         this.stopTyping()
       }
@@ -265,9 +266,21 @@ export class SessionRuntime {
   }
 
   private storePart(part: Part): void {
+    if (part.type === 'step-start' || part.type === 'step-finish') return
     const messageParts = this.partBuffer.get(part.messageID) || new Map<string, Part>()
     messageParts.set(part.id, part)
     this.partBuffer.set(part.messageID, messageParts)
+  }
+
+  private forgetPart(part: { id: string; messageID: string }): void {
+    const messageParts = this.partBuffer.get(part.messageID)
+    if (!messageParts) return
+    messageParts.delete(part.id)
+    if (messageParts.size === 0) this.partBuffer.delete(part.messageID)
+  }
+
+  private forgetMessage(messageID: string): void {
+    this.partBuffer.delete(messageID)
   }
 
   private getBufferedParts(messageID: string): Part[] {
@@ -290,16 +303,26 @@ export class SessionRuntime {
 
   private async sendPartMessage({ part }: { part: Part }): Promise<void> {
     const verbosity = this.deps.config.getVerbosity()
-    if (verbosity.isTextOnly && part.type !== 'text') return
+    if (verbosity.isTextOnly && part.type !== 'text') {
+      this.forgetPart(part)
+      return
+    }
     if (verbosity.isTextAndEssentialTools) {
       if (part.type !== 'text' && !(part.type === 'tool' && SessionPart.isEssentialTool(part))) {
+        this.forgetPart(part)
         return
       }
     }
 
     const content = this.deps.partFormatter.format(part)
-    if (!content.trim()) return
-    if (this.sentPartIds.has(part.id) || (await this.deps.partMessages.exists(part.id))) return
+    if (!content.trim()) {
+      this.forgetPart(part)
+      return
+    }
+    if (this.sentPartIds.has(part.id) || (await this.deps.partMessages.exists(part.id))) {
+      this.forgetPart(part)
+      return
+    }
     this.sentPartIds.add(part.id)
 
     const kind = SessionPart.kind(part)
@@ -316,6 +339,7 @@ export class SessionRuntime {
         messageId: sent.id,
         threadId: this.thread.id,
       })
+      this.forgetPart(part)
       this.requestTypingRepulse()
     } catch (error) {
       this.sentPartIds.delete(part.id)
@@ -379,10 +403,13 @@ export class SessionRuntime {
               messageId: sent.id,
               threadId: this.thread.id,
             })
+            this.forgetPart(part)
           } catch (error) {
             this.sentPartIds.delete(part.id)
             this.deps.discordLogger.error(`Failed to send task part ${part.id}:`, error)
           }
+        } else if (this.sentPartIds.has(part.id)) {
+          this.forgetPart(part)
         }
         return
       }
@@ -405,12 +432,15 @@ export class SessionRuntime {
             this.deps.discordLogger.error('Failed to send large output notice:', error)
           })
       }
+      if (this.sentPartIds.has(part.id)) this.forgetPart(part)
       return
     }
 
     if (part.type === 'reasoning') {
       if (this.deps.config.getVerbosity().isToolsAndText) {
         await this.sendPartMessage({ part })
+      } else {
+        this.forgetPart(part)
       }
       return
     }
