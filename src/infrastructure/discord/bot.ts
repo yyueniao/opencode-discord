@@ -78,6 +78,21 @@ export class DiscordBot {
       }
     })
 
+    client.on(Events.ThreadDelete, (thread) => {
+      this.runtimes.dispose(thread.id)
+    })
+
+    client.on(Events.ThreadUpdate, (oldThread, newThread) => {
+      if (newThread.archived && !oldThread.archived) {
+        this.runtimes.dispose(newThread.id)
+      }
+    })
+
+    client.on(Events.ChannelDelete, (channel) => {
+      this.runtimes.dispose(channel.id)
+      this.runtimes.disposeByChannelId(channel.id)
+    })
+
     if (!client.isReady()) {
       await client.login(token)
     }

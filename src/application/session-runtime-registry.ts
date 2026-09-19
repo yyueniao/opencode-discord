@@ -30,6 +30,14 @@ export class SessionRuntimeRegistry {
     this.runtimes.delete(threadId)
   }
 
+  disposeByChannelId(channelId: string): void {
+    const threadIds: string[] = []
+    for (const [threadId, runtime] of this.runtimes) {
+      if (runtime.channelId === channelId) threadIds.push(threadId)
+    }
+    for (const threadId of threadIds) this.dispose(threadId)
+  }
+
   disposeAll(): void {
     for (const [threadId, runtime] of this.runtimes) {
       runtime.dispose()
