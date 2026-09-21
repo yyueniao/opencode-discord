@@ -6,10 +6,17 @@ import {
   type AutocompleteInteraction,
   type ChatInputCommandInteraction,
   type Interaction,
+  type ThreadChannel,
 } from 'discord.js'
 import type { AddProject } from '../application/add-project.js'
+import type { SessionRuntimeRegistry } from '../application/session-runtime-registry.js'
+import type {
+  ChannelProjectRepository,
+  ThreadSessionRepository,
+} from '../domain/repositories.js'
 import type { GitRepoScanner } from '../infrastructure/git-repo-scanner.js'
 import type { Logger } from '../infrastructure/logger.js'
+import type { OpencodeServer } from '../infrastructure/opencode-server.js'
 
 const ADD_PROJECT_COMMAND = new SlashCommandBuilder()
   .setName('add-project')
@@ -22,16 +29,24 @@ const ADD_PROJECT_COMMAND = new SlashCommandBuilder()
       .setAutocomplete(true),
   )
 
+const ABORT_COMMAND = new SlashCommandBuilder()
+  .setName('abort')
+  .setDescription('Stop the current OpenCode run in this thread')
+
 const MAX_AUTOCOMPLETE = 25
 const MAX_CHOICE = 100
 
 export class SlashCommands {
-  readonly definitions = [ADD_PROJECT_COMMAND.toJSON()]
+  readonly definitions = [ADD_PROJECT_COMMAND.toJSON(), ABORT_COMMAND.toJSON()]
 
   constructor(
     private readonly addProject: AddProject,
     private readonly gitRepos: GitRepoScanner,
     private readonly logger: Logger,
+    private readonly runtimes: SessionRuntimeRegistry,
+    private readonly threadSessions: ThreadSessionRepository,
+    private readonly channelProjects: ChannelProjectRepository,
+    private readonly opencode: OpencodeServer,
   ) {}
 
   async ready(): Promise<void> {
@@ -44,8 +59,14 @@ export class SlashCommands {
       return
     }
     if (!interaction.isChatInputCommand()) return
-    if (interaction.commandName !== ADD_PROJECT_COMMAND.name) return
-    await this.add(interaction)
+    if (interaction.commandName === ADD_PROJECT_COMMAND.name) {
+      await this.add(interaction)
+      return
+    }
+    if (interaction.commandName === ABORT_COMMAND.name) {
+      await this.abort(interaction)
+      return
+    }
   }
 
   private async autocomplete(interaction: AutocompleteInteraction): Promise<void> {
@@ -71,6 +92,64 @@ export class SlashCommands {
           this.logger.error('Failed to send autocomplete response:', sendError)
         })
       }
+    }
+  }
+
+  private async abort(interaction: ChatInputCommandInteraction): Promise<void> {
+    await interaction.deferReply()
+    try {
+      const fetched = interaction.channel
+        ? undefined
+        : await interaction.client.channels.fetch(interaction.channelId).catch(() => null)
+      const channel = (interaction.channel ?? fetched) as unknown as ThreadChannel | null
+      if (!channel || typeof channel.isThread !== 'function' || !channel.isThread()) {
+        await interaction.editReply('Use /abort inside a session thread to stop its current run.')
+        return
+      }
+      const thread = channel as ThreadChannel
+      const threadId = thread.id
+      const parentId = thread.parentId
+      if (!parentId) {
+        await interaction.editReply('Use /abort inside a session thread to stop its current run.')
+        return
+      }
+
+      const runtime = this.runtimes.get(threadId)
+      if (runtime) {
+        const aborted = await runtime.abort()
+        await interaction.editReply(
+          aborted ? '⬦ Aborted current run.' : '⬦ Nothing running – session is idle.',
+        )
+        return
+      }
+
+      const [project, sessionId] = await Promise.all([
+        this.channelProjects.findByChannelId(parentId),
+        this.threadSessions.findSessionId(threadId),
+      ])
+      if (!project || !sessionId) {
+        await interaction.editReply('⬦ No active session in this thread.')
+        return
+      }
+      const getClient = await this.opencode.initializeForDirectory(project.directory)
+      const result = await getClient().session.abort({
+        sessionID: sessionId,
+        directory: project.directory,
+      })
+      if (result.error) {
+        const message =
+          typeof result.error === 'object' && result.error && 'message' in result.error
+            ? String(result.error.message)
+            : 'abort failed'
+        throw new Error(message)
+      }
+      await interaction.editReply(
+        result.data ? '⬦ Aborted current run.' : '⬦ Nothing running – session is idle.',
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      this.logger.error('abort command error:', error)
+      await interaction.editReply(`Error: ${message.slice(0, 1900)}`)
     }
   }
 

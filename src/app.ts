@@ -85,6 +85,10 @@ export class App {
     this.addProject,
     this.gitRepos,
     this.discordLogger,
+    this.runtimes,
+    this.threadSessions,
+    this.channelProjects,
+    this.opencode,
   )
 
   readonly bot = new DiscordBot(

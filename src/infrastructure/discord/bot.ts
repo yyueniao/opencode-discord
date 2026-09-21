@@ -119,7 +119,7 @@ export class DiscordBot {
       await Promise.all(
         client.guilds.cache.map((guild) => guild.commands.set(this.slashCommands.definitions)),
       )
-      this.logger.log('Registered /add-project')
+      this.logger.log('Registered slash commands (/add-project, /abort)')
     } catch (error) {
       this.logger.error('Failed to register slash commands:', error)
     }

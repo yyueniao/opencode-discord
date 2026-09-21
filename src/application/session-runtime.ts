@@ -76,6 +76,32 @@ export class SessionRuntime {
     this.deps.eventStream.unregister(this.threadId)
   }
 
+  get isBusy(): boolean {
+    return this.busy
+  }
+
+  async abort(): Promise<boolean> {
+    const sessionId =
+      this.sessionId || (await this.deps.threadSessions.findSessionId(this.threadId))
+    if (!sessionId) return false
+    this.sessionId = sessionId
+    const getClient = await this.deps.opencode.initializeForDirectory(this.projectDirectory)
+    const result = await getClient().session.abort({
+      sessionID: sessionId,
+      directory: this.projectDirectory,
+    })
+    if (result.error) {
+      const message =
+        typeof result.error === 'object' && result.error && 'message' in result.error
+          ? String(result.error.message)
+          : 'abort failed'
+      throw new Error(message)
+    }
+    this.busy = false
+    this.stopTyping()
+    return result.data ?? true
+  }
+
   enqueueIncoming(input: IncomingTurn): Promise<void> {
     const run = this.ingressQueue.then(() => this.submit(input))
     this.ingressQueue = run.then(
