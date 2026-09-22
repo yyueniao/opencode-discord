@@ -3,6 +3,7 @@ import http from 'node:http'
 import net from 'node:net'
 import {
   createOpencodeClient,
+  type ModelV2Info,
   type OpencodeClient,
 } from '@opencode-ai/sdk/v2'
 import type { AppConfig } from './config.js'
@@ -14,6 +15,7 @@ export class OpencodeServer {
   private serverBaseUrl: string | null = null
   private readonly clients = new Map<string, OpencodeClient>()
   private onReady: (() => void) | undefined
+  private modelCache: { models: ModelV2Info[]; expiresAt: number } | null = null
 
   constructor(
     private readonly config: AppConfig,
@@ -98,6 +100,48 @@ export class OpencodeServer {
     return () => this.getOrCreateClient(directory)
   }
 
+  async listModels(): Promise<ModelV2Info[]> {
+    await this.ensure()
+    if (this.modelCache && this.modelCache.expiresAt > Date.now()) {
+      return this.modelCache.models
+    }
+    if (!this.serverBaseUrl) throw new Error('OpenCode server is not running')
+    const client = createOpencodeClient({
+      baseUrl: this.serverBaseUrl,
+      directory: process.cwd(),
+      headers: this.getAuthHeaders(),
+    })
+    const result = await client.v2.model.list()
+    if (result.error) {
+      const message =
+        typeof result.error === 'object' && result.error && 'message' in result.error
+          ? String((result.error as { message?: unknown }).message)
+          : 'Failed to list models'
+      throw new Error(message)
+    }
+    const models = result.data?.data ?? []
+    this.modelCache = { models, expiresAt: Date.now() + 30_000 }
+    return models
+  }
+
+  async listFreeModels(): Promise<ModelV2Info[]> {
+    const models = await this.listModels()
+    const free = models.filter((m) => m.enabled !== false && isFreeModel(m))
+    if (free.length > 0) return free
+    return models.filter((m) => m.enabled !== false)
+  }
+
+  async getFreeModelVariants(providerID: string, modelID: string): Promise<string[]> {
+    const models = await this.listFreeModels()
+    const match = models.find((m) => m.providerID === providerID && m.id === modelID)
+    if (!match) return []
+    return match.variants.map((v) => v.id)
+  }
+
+  invalidateModelCache(): void {
+    this.modelCache = null
+  }
+
   async stop(): Promise<void> {
     const child = this.serverProcess
     this.serverProcess = null
@@ -138,6 +182,13 @@ export class OpencodeServer {
       req.end()
     })
   }
+}
+
+function isFreeModel(model: ModelV2Info): boolean {
+  if (!model.cost || model.cost.length === 0) return false
+  return model.cost.every(
+    (c) => c.input === 0 && c.output === 0 && c.cache.read === 0 && c.cache.write === 0,
+  )
 }
 
 async function findFreePort(): Promise<number> {

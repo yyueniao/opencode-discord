@@ -21,6 +21,7 @@ import { OpencodeServer } from './infrastructure/opencode-server.js'
 import {
   Database,
   SqliteChannelProjectRepository,
+  SqliteModelSelectionRepository,
   SqlitePartMessageRepository,
   SqliteThreadSessionRepository,
 } from './infrastructure/persistence.js'
@@ -48,6 +49,7 @@ export class App {
   readonly channelProjects = new SqliteChannelProjectRepository(this.database)
   readonly threadSessions = new SqliteThreadSessionRepository(this.database)
   readonly partMessages = new SqlitePartMessageRepository(this.database)
+  readonly modelSelection = new SqliteModelSelectionRepository(this.database)
 
   readonly opencode = new OpencodeServer(this.config, this.opencodeLogger)
   readonly eventStream = new OpencodeEventStream(this.opencode, this.sessionLogger)
@@ -59,6 +61,7 @@ export class App {
     opencode: this.opencode,
     threadSessions: this.threadSessions,
     partMessages: this.partMessages,
+    modelSelection: this.modelSelection,
     eventStream: this.eventStream,
     config: this.config,
     messaging: this.messaging,
@@ -89,6 +92,7 @@ export class App {
     this.threadSessions,
     this.channelProjects,
     this.opencode,
+    this.modelSelection,
   )
 
   readonly bot = new DiscordBot(

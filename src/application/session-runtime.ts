@@ -5,9 +5,11 @@ import { SessionPart, type SessionPartKind } from '../domain/session-part.js'
 import type { PartFormatter } from '../domain/part-formatter.js'
 import type { PromptBuilder } from '../domain/prompt-builder.js'
 import type {
+  ModelSelectionRepository,
   PartMessageRepository,
   ThreadSessionRepository,
 } from '../domain/repositories.js'
+import type { ModelSelection } from '../domain/model-selection.js'
 import type { AppConfig } from '../infrastructure/config.js'
 import { DiscordMessaging } from '../infrastructure/discord/messaging.js'
 import {
@@ -21,6 +23,7 @@ export type SessionRuntimeDeps = {
   opencode: OpencodeServer
   threadSessions: ThreadSessionRepository
   partMessages: PartMessageRepository
+  modelSelection: ModelSelectionRepository
   eventStream: OpencodeEventStream
   config: AppConfig
   messaging: DiscordMessaging
@@ -145,7 +148,7 @@ export class SessionRuntime {
         ...images,
       ]
       await this.deps.eventStream.waitUntilConnected()
-      const model = this.deps.config.getOpencodeModel()
+      const model = await this.resolveModelSelection()
       const result = await getClient().session.promptAsync({
         sessionID: session.id,
         directory: this.projectDirectory,
@@ -154,7 +157,7 @@ export class SessionRuntime {
           providerID: model.providerID,
           modelID: model.modelID,
         },
-        variant: this.deps.config.getOpencodeVariant(),
+        variant: model.variant ?? undefined,
         system: this.deps.promptBuilder.systemMessage({
           sessionId: session.id,
           channelId: this.channelId,
@@ -207,13 +210,13 @@ export class SessionRuntime {
       }
     }
 
-    const model = this.deps.config.getOpencodeModel()
+    const model = await this.resolveModelSelection()
     const created = await getClient().session.create({
       directory: this.projectDirectory,
       model: {
         id: model.modelID,
         providerID: model.providerID,
-        variant: this.deps.config.getOpencodeVariant(),
+        variant: model.variant ?? undefined,
       },
     })
     if (!created.data) {
@@ -228,6 +231,28 @@ export class SessionRuntime {
   private setSessionId(sessionId: string): void {
     this.sessionId = sessionId
     this.deps.eventStream.bindSession(this.threadId, sessionId)
+  }
+
+  private async resolveModelSelection(): Promise<ModelSelection> {
+    const stored = await this.deps.modelSelection.get()
+    if (stored) return stored
+    try {
+      const free = await this.deps.opencode.listFreeModels()
+      if (free.length > 0) {
+        const first = free[0]!
+        const variant = first.variants[0]?.id ?? null
+        const selection: ModelSelection = {
+          providerID: first.providerID,
+          modelID: first.id,
+          variant,
+        }
+        await this.deps.modelSelection.save(selection).catch(() => {})
+        return selection
+      }
+    } catch (error) {
+      this.deps.logger.warn('Failed to auto-select free model:', error)
+    }
+    throw new Error('No model selected. Use /model to choose a free model and variant.')
   }
 
   private async handleEvent(event: OpenCodeEvent): Promise<void> {

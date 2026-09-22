@@ -3,9 +3,11 @@ import { createClient, type Client } from '@libsql/client'
 import { ChannelProject } from '../domain/channel-project.js'
 import type {
   ChannelProjectRepository,
+  ModelSelectionRepository,
   PartMessageRepository,
   ThreadSessionRepository,
 } from '../domain/repositories.js'
+import type { ModelSelection } from '../domain/model-selection.js'
 import type { AppConfig } from './config.js'
 import type { Logger } from './logger.js'
 
@@ -24,6 +26,12 @@ const SCHEMA = [
     part_id TEXT PRIMARY KEY,
     message_id TEXT NOT NULL,
     thread_id TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS model_selection (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    provider_id TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    variant TEXT
   )`,
 ]
 
@@ -160,5 +168,31 @@ export class SqlitePartMessageRepository implements PartMessageRepository {
       args: [partId],
     })
     return Boolean(result.rows[0])
+  }
+}
+
+export class SqliteModelSelectionRepository implements ModelSelectionRepository {
+  constructor(private readonly database: Database) {}
+
+  async get(): Promise<ModelSelection | undefined> {
+    const result = await this.database.getClient().execute(
+      'SELECT provider_id, model_id, variant FROM model_selection WHERE id = 1 LIMIT 1',
+    )
+    const row = result.rows[0]
+    if (!row) return undefined
+    const providerID = row.provider_id
+    const modelID = row.model_id
+    if (typeof providerID !== 'string' || typeof modelID !== 'string') return undefined
+    const variant = typeof row.variant === 'string' ? row.variant : null
+    return { providerID, modelID, variant }
+  }
+
+  async save(selection: ModelSelection): Promise<void> {
+    await this.database.getClient().execute({
+      sql: `INSERT INTO model_selection (id, provider_id, model_id, variant)
+            VALUES (1, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET provider_id = excluded.provider_id, model_id = excluded.model_id, variant = excluded.variant`,
+      args: [selection.providerID, selection.modelID, selection.variant ?? null],
+    })
   }
 }

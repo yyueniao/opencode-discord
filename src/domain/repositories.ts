@@ -1,4 +1,5 @@
 import type { ChannelProject } from './channel-project.js'
+import type { ModelSelection } from './model-selection.js'
 
 export interface ChannelProjectRepository {
   findByChannelId(channelId: string): Promise<ChannelProject | undefined>
@@ -15,4 +16,9 @@ export interface ThreadSessionRepository {
 export interface PartMessageRepository {
   save(input: { partId: string; messageId: string; threadId: string }): Promise<void>
   exists(partId: string): Promise<boolean>
+}
+
+export interface ModelSelectionRepository {
+  get(): Promise<ModelSelection | undefined>
+  save(selection: ModelSelection): Promise<void>
 }

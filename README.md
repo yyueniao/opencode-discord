@@ -55,11 +55,9 @@ pnpm install
 ```
 DISCORD_BOT_TOKEN=...
 DISCORD_CATEGORY_ID=...
-OPENCODE_DISCORD_MODEL=provider/model
-OPENCODE_DISCORD_VARIANT=low
 ```
 
-`OPENCODE_DISCORD_MODEL` and `OPENCODE_DISCORD_VARIANT` are required. Sessions use that model/variant only; they do not change the default for other OpenCode sessions.
+Use `/model` in Discord to select the model and variant. The selection is stored and used for new sessions; existing sessions pick it up on the next prompt.
 
 5. Add a project, then start:
 
