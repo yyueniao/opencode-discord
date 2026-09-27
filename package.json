@@ -21,7 +21,7 @@
   "dependencies": {
     "@inquirer/prompts": "8.7.2",
     "@libsql/client": "^0.17.2",
-    "@opencode-ai/sdk": "^1.16.2",
+    "@opencode-ai/sdk": "1.18.32",
     "discord.js": "^14.26.3",
     "marked": "^17.0.5",
     "picocolors": "^1.1.1",
