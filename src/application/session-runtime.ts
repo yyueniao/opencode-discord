@@ -252,7 +252,7 @@ export class SessionRuntime {
     } catch (error) {
       this.deps.logger.warn('Failed to auto-select free model:', error)
     }
-    throw new Error('No model selected. Use /model to choose a free model and variant.')
+    throw new Error('No model selected. Use /model to choose a model and variant.')
   }
 
   private async handleEvent(event: OpenCodeEvent): Promise<void> {

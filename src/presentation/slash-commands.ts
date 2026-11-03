@@ -37,11 +37,11 @@ const ABORT_COMMAND = new SlashCommandBuilder()
 
 const MODEL_COMMAND = new SlashCommandBuilder()
   .setName('model')
-  .setDescription('Select free model and variant for new sessions')
+  .setDescription('Select model and variant for new sessions')
   .addStringOption((option) =>
     option
       .setName('model')
-      .setDescription('provider/model (free models only)')
+      .setDescription('provider/model')
       .setRequired(false)
       .setAutocomplete(true),
   )
@@ -133,7 +133,7 @@ export class SlashCommands {
     const query = String(focused.value ?? '').toLowerCase()
     try {
       if (focused.name === 'model') {
-        const models = await this.opencode.listFreeModels().catch(() => [])
+        const models = await this.opencode.listAvailableModels().catch(() => [])
         const choices: { name: string; value: string }[] = []
         for (const m of models) {
           const ref = `${m.providerID}/${m.id}`
@@ -154,12 +154,12 @@ export class SlashCommands {
           const parsed = parseModelRef(modelRef)
           if (parsed) {
             variants = await this.opencode
-              .getFreeModelVariants(parsed.providerID, parsed.modelID)
+              .getModelVariants(parsed.providerID, parsed.modelID)
               .catch(() => [])
           }
         } else {
-          // No model selected yet: aggregate distinct variants across free models
-          const models = await this.opencode.listFreeModels().catch(() => [])
+          // No model selected yet: aggregate distinct variants across available models
+          const models = await this.opencode.listAvailableModels().catch(() => [])
           const uniq = new Set<string>()
           for (const m of models) for (const v of m.variants) uniq.add(v.id)
           variants = Array.from(uniq)
@@ -265,31 +265,31 @@ export class SlashCommands {
         if (current) {
           const ref = `${current.providerID}/${current.modelID}`
           const variantSuffix = current.variant ? ` variant \`${current.variant}\`` : ' (no variant)'
-          let freeCount = ''
+          let modelCount = ''
           try {
-            const free = await this.opencode.listFreeModels()
-            freeCount = ` (${free.length} free models available)`
+            const models = await this.opencode.listAvailableModels()
+            modelCount = ` (${models.length} models available)`
           } catch {}
           await interaction.editReply(
-            `Current model: \`${ref}\`${variantSuffix}.${freeCount}\nUse \`/model model:provider/model variant:variant\` to change. Autocomplete shows free models only.`,
+            `Current model: \`${ref}\`${variantSuffix}.${modelCount}\nUse \`/model model:provider/model variant:variant\` to change. Autocomplete shows all available models.`,
           )
         } else {
           let hint = ''
           try {
-            const free = await this.opencode.listFreeModels()
-            if (free.length > 0) {
-              const sample = free
+            const models = await this.opencode.listAvailableModels()
+            if (models.length > 0) {
+              const sample = models
                 .slice(0, 5)
                 .map((m) => `\`${m.providerID}/${m.id}\``)
                 .join(', ')
-              hint = `\nAvailable free models include: ${sample}${free.length > 5 ? ` (+${free.length - 5} more)` : ''}`
+              hint = `\nAvailable models include: ${sample}${models.length > 5 ? ` (+${models.length - 5} more)` : ''}`
             }
           } catch (error) {
             const msg = error instanceof Error ? error.message : String(error)
             hint = `\nCould not list models: ${msg.slice(0, 200)}`
           }
           await interaction.editReply(
-            `No model selected. Use \`/model\` with autocomplete to pick a free model.${hint}`,
+            `No model selected. Use \`/model\` with autocomplete to pick a model.${hint}`,
           )
         }
         return
@@ -303,12 +303,12 @@ export class SlashCommands {
         return
       }
 
-      let models: Awaited<ReturnType<OpencodeServer['listFreeModels']>> = []
+      let models: Awaited<ReturnType<OpencodeServer['listAvailableModels']>> = []
       try {
-        models = await this.opencode.listFreeModels()
+        models = await this.opencode.listAvailableModels()
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)
-        await interaction.editReply(`Failed to list free models: ${msg.slice(0, 1800)}`)
+        await interaction.editReply(`Failed to list models: ${msg.slice(0, 1800)}`)
         return
       }
 
@@ -319,7 +319,7 @@ export class SlashCommands {
           .map((m) => `${m.providerID}/${m.id}`)
           .join(', ')
         await interaction.editReply(
-          `Model \`${modelArg}\` not found among free models. Available: ${available || 'none'}. Use autocomplete.`,
+          `Model \`${modelArg}\` not found among available models. Available: ${available || 'none'}. Use autocomplete.`,
         )
         return
       }

@@ -124,15 +124,20 @@ export class OpencodeServer {
     return models
   }
 
-  async listFreeModels(): Promise<ModelV2Info[]> {
+  async listAvailableModels(): Promise<ModelV2Info[]> {
     const models = await this.listModels()
-    const free = models.filter((m) => m.enabled !== false && isFreeModel(m))
-    if (free.length > 0) return free
     return models.filter((m) => m.enabled !== false)
   }
 
-  async getFreeModelVariants(providerID: string, modelID: string): Promise<string[]> {
-    const models = await this.listFreeModels()
+  async listFreeModels(): Promise<ModelV2Info[]> {
+    const models = await this.listAvailableModels()
+    const free = models.filter(isFreeModel)
+    if (free.length > 0) return free
+    return models
+  }
+
+  async getModelVariants(providerID: string, modelID: string): Promise<string[]> {
+    const models = await this.listAvailableModels()
     const match = models.find((m) => m.providerID === providerID && m.id === modelID)
     if (!match) return []
     return match.variants.map((v) => v.id)
